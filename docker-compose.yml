@@ -1,16 +1,71 @@
 version: "3.8"
 
 services:
+  # ============================================================
+  # 🧩 Quotient Discord Bot
+  # ============================================================
   quotient-bot:
+    container_name: quotient-bot
     build:
       context: .
-    ports:
-      - "8888:8888"
-      - "6000:6000"
+      dockerfile: Dockerfile
     restart: always
 
+    # If your bot runs any local web service (FastAPI/Quart)
+    ports:
+      - "8888:8888"   # Web dashboard / API
+      - "6000:6000"   # Optional WebSocket / socket.io
+
     environment:
-      - PYTHONUNBUFFERED=1 # Ensure Python output is not buffered
+      # Load secrets from .env (Discord token, DB, etc.)
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL}
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - BOT_PREFIX=${BOT_PREFIX:-q}
+      - SERVER_LINK=${SERVER_LINK:-https://discord.gg/aBM5xz6}
+      - BOT_INVITE=${BOT_INVITE:-}
+      - WEBSITE=${WEBSITE:-https://quotientbot.xyz}
+      - REPOSITORY=${REPOSITORY:-https://github.com/quotientbot}
+      - DEVS=${DEVS:-123456789012345678}
 
     volumes:
-      - ./logs:/app/logs # Mount a volume for logs
+      - ./logs:/app/logs    # Persistent logs
+      - ./data:/app/data    # Optional — data or cache files
+
+    depends_on:
+      - db  # Wait for PostgreSQL before starting
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h db -p 5432 -U postgres || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================================
+  # 🐘 PostgreSQL Database
+  # ============================================================
+  db:
+    image: postgres:15-alpine
+    container_name: quotient-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-password}
+      POSTGRES_DB: ${DB_NAME:-quotient_db_a20z}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+# ============================================================
+# 📦 Persistent Volumes
+# ============================================================
+volumes:
+  db_data:
+  logs:
+  data:
