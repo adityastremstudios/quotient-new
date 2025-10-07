@@ -1,9 +1,9 @@
 # ============================================================
-# 🏗️ Stage 1: Builder (install dependencies using Poetry)
+# 🏗️ Stage 1: Builder (install dependencies using Poetry or pip)
 # ============================================================
 FROM python:3.11-buster AS builder
 
-# Install system dependencies required by your packages
+# Install required system libraries for building packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -16,31 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN pip install --no-cache-dir poetry==1.5.1
-
-# Set Poetry environment
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
-
 WORKDIR /app
 
-# Copy dependency files first (for better layer caching)
-COPY pyproject.toml poetry.lock ./
-RUN touch README.md
+# Copy your dependency files
+COPY requirements.txt .
 
-# Install dependencies (excluding dev dependencies)
-RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
-    poetry install --without dev --no-root
+# Install all Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ============================================================
-# 🚀 Stage 2: Runtime (smaller final image)
+# 🚀 Stage 2: Runtime (lighter production image)
 # ============================================================
 FROM python:3.11-slim-buster AS runtime
 
-# Install only runtime dependencies (smaller footprint)
+# Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libjpeg62-turbo \
@@ -49,26 +38,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wkhtmltopdf \
     && rm -rf /var/lib/apt/lists/*
 
-# Setup environment
+# Set up environment
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    VIRTUAL_ENV=/app/.venv \
-    PATH="/app/.venv/bin:$PATH"
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-# Copy virtual environment from builder stage
-COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
+# Copy dependencies from builder
+COPY --from=builder /usr/local /usr/local
 
-# Copy source code
+# Copy your source code
 COPY src src
 COPY config.py config.py
 
-# Optional: copy .git directory if needed (for version info)
-COPY .git .git
+# No .git folder — removed to avoid checksum error
+# COPY .git .git   # ❌ removed
 
-# Healthcheck (optional for uptime monitors)
-# HEALTHCHECK CMD python -m src.healthcheck || exit 1
-
-# Entrypoint
+# Default command to start the bot
 ENTRYPOINT ["python", "src/bot.py"]
