@@ -2,6 +2,7 @@ import random
 from contextlib import suppress
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Optional, Union
 
 import discord
 import pytz
@@ -9,10 +10,23 @@ import pytz
 import config
 
 
+# ==============================
+# 🔹 Utility / Constants Section
+# ==============================
+
 class _Sentinel:
-    def __repr__(self):
+    """Sentinel class for representing missing or undefined parameters."""
+    def __repr__(self) -> str:
         return "<MISSING>"
 
+
+MISSING = _Sentinel()
+IST = pytz.timezone("Asia/Kolkata")  # Consistent time zone usage
+
+
+# ==============================
+# 🔹 Enumerations
+# ==============================
 
 class Day(Enum):
     monday = "monday"
@@ -99,7 +113,16 @@ class ScrimBanType(Enum):
     unban = "unbanned"
 
 
-bot_colors = {
+class HelpGIF(Enum):
+    """Placeholder for help GIFs to be defined later."""
+    pass
+
+
+# ==============================
+# 🎨 Colors & Perks
+# ==============================
+
+bot_colors: dict[int, int] = {
     746348747918934096: 0x00FFB3,
     744990850064580660: 0xF3B82B,
     846339012607082506: 0x87EA5C,
@@ -108,7 +131,7 @@ bot_colors = {
     902857418390765569: 0xFFFFFF,
 }
 
-perks = {
+perks: dict[str, list[str]] = {
     "Premium Role": ["❌", "✅"],
     "Scrims": ["3", "Unlimited"],
     "Tourneys": ["2", "Unlimited"],
@@ -123,7 +146,12 @@ perks = {
 }
 
 
-def random_greeting():
+# ==============================
+# ✨ Randomized Fun Helpers
+# ==============================
+
+def random_greeting() -> str:
+    """Return a random, cheerful greeting."""
     greetings = [
         "Hello, sunshine!",
         "Peek-a-boo!",
@@ -131,7 +159,7 @@ def random_greeting():
         "Ahoy, matey!",
         "Hiya!",
         "What’s crackin’?",
-        "Howdy, howdy ,howdy!",
+        "Howdy, howdy, howdy!",
         "Yo!",
         "I like your face.",
         "Bonjour!",
@@ -140,7 +168,8 @@ def random_greeting():
     return random.choice(greetings)
 
 
-def random_thanks():
+def random_thanks() -> str:
+    """Return a random Discord image link for thank-you messages."""
     msges = (
         "https://cdn.discordapp.com/attachments/877888851241238548/877890130478784532/unknown.png",
         "https://cdn.discordapp.com/attachments/877888851241238548/877890377426821140/unknown.png",
@@ -160,32 +189,43 @@ def random_thanks():
     return random.choice(msges)
 
 
-tips = (
-    "We have an awesome support server:\ndiscord.gg/aBM5xz6",
+# ==============================
+# 💡 Tip & Premium Reminder System
+# ==============================
+
+tips: tuple[str, ...] = (
+    "We have an awesome support server:\nhttps://discord.gg/aBM5xz6",
     "You can set custom reactions for tourneys & scrims with Quotient Pro.",
-    "I like your face : )",  # I really do
+    "I like your face : )",
     "You can add a role to multiple users with `role @role @user @user2...` command.",
-    "Quotient can detect and verify youtube/insta/loco,etc. screenshots (`ssverify` cmd).",
-    "You can buy Quotient Pro for 29INR only at <https://quotientbot.xyz/premium>",
-    "You can send customized embeds with `/embed` command.",
-    "Scrims Slot Cancel-Claim is available for free with `slotm` command.",
-    "You can create tourney groups with `tourney` command.",
-    "Scrims Open & Close messages can be designed with `sm` command.",
-    "With Quotient Pro you can set custom DM message.",
-    "We also make custom bots, checkout: https://discord.gg/7bKA8kZd44 ",
+    "Quotient can detect and verify screenshots from YouTube/Insta/Loco, etc. (`/ssverify`).",
+    "You can buy Quotient Pro for ₹29 at <https://quotientbot.xyz/premium>",
+    "Send customized embeds with `/embed` command.",
+    "Scrims Slot Cancel-Claim is available for free with `/slotm` command.",
+    "Create tourney groups with `/tourney` command.",
+    "Scrims Open & Close messages can be designed with `/sm` command.",
+    "With Quotient Pro you can set a custom DM message.",
+    "We also make custom bots! Check out: https://discord.gg/7bKA8kZd44",
 )
 
 
-async def show_tip(ctx):
-    if ctx.author.id in config.DEVS:
+async def show_tip(ctx: Union[discord.Interaction, discord.Message]) -> None:
+    """Occasionally show a random helpful tip."""
+    user_id = getattr(ctx.user if isinstance(ctx, discord.Interaction) else ctx.author, "id", None)
+    if user_id in getattr(config, "DEVS", []):
         return
 
     if random.randint(45, 69) == 69:
         with suppress(discord.HTTPException, discord.Forbidden):
-            await ctx.send(f"**Did You Know?:** {random.choice(tips)}")
+            tip = random.choice(tips)
+            if isinstance(ctx, discord.Interaction):
+                await ctx.response.send_message(f"**Did You Know?:** {tip}", ephemeral=True)
+            else:
+                await ctx.channel.send(f"**Did You Know?:** {tip}")
 
 
-async def remind_premium(ctx):
+async def remind_premium(ctx: Union[discord.Interaction, discord.Message]) -> None:
+    """Remind premium guilds when their subscription is expiring soon."""
     if random.randint(1, 3) != 1:
         return
 
@@ -193,32 +233,32 @@ async def remind_premium(ctx):
     from models import Guild
     from utils import discord_timestamp
 
-    guild = await Guild.get_or_none(
-        pk=ctx.guild.id, is_premium=True, premium_end_time__lte=ctx.bot.current_time + timedelta(days=5)
+    now = datetime.now(tz=IST)
+    guild_obj = await Guild.get_or_none(
+        pk=getattr(ctx.guild, "id", None),
+        is_premium=True,
+        premium_end_time__lte=now + timedelta(days=5)
     )
-    if not guild:
+
+    if not guild_obj or guild_obj.premium_end_time < now:
         return
 
-    if guild.premium_end_time < ctx.bot.current_time:
-        return
-
-    _e = discord.Embed(color=discord.Color.red(), title="Premium Ending Soon....")
-    _e.description = (
-        f"Your Quotient Premium subscription is ending {discord_timestamp(guild.premium_end_time)}\n\n"
-        "*Click the button to renew your subscription.*"
+    embed = discord.Embed(
+        color=discord.Color.red(),
+        title="⚠️ Premium Ending Soon..."
     )
-    v = discord.ui.View(timeout=None)
-    v.add_item(PremiumPurchaseBtn(label="Renew Premium"))
+    embed.description = (
+        f"Your Quotient Premium subscription is ending {discord_timestamp(guild_obj.premium_end_time)}.\n\n"
+        "*Click below to renew your subscription.*"
+    )
+
+    view = discord.ui.View(timeout=None)
+    view.add_item(PremiumPurchaseBtn(label="Renew Premium"))
 
     try:
-        await ctx.reply(embed=_e, view=v)
+        if isinstance(ctx, discord.Interaction):
+            await ctx.response.send_message(embed=embed, view=view, ephemeral=True)
+        else:
+            await ctx.reply(embed=embed, view=view)
     except discord.HTTPException:
         return
-
-
-class HelpGIF(Enum):
-    pass
-
-
-MISSING = _Sentinel()
-IST = pytz.timezone("Asia/Kolkata")
