@@ -1,7 +1,25 @@
-FROM python:3.11-buster as builder
+# ============================================================
+# 🏗️ Stage 1: Builder (install dependencies using Poetry)
+# ============================================================
+FROM python:3.11-buster AS builder
 
-RUN pip install poetry==1.5.1
+# Install system dependencies required by your packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    libffi-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libtesseract-dev \
+    tesseract-ocr \
+    wkhtmltopdf \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install Poetry
+RUN pip install --no-cache-dir poetry==1.5.1
+
+# Set Poetry environment
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
     POETRY_VIRTUALENVS_CREATE=1 \
@@ -9,22 +27,48 @@ ENV POETRY_NO_INTERACTION=1 \
 
 WORKDIR /app
 
+# Copy dependency files first (for better layer caching)
 COPY pyproject.toml poetry.lock ./
 RUN touch README.md
 
-RUN --mount=type=cache,target=$POETRY_CACHE_DIR poetry install --without dev --no-root
+# Install dependencies (excluding dev dependencies)
+RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
+    poetry install --without dev --no-root
 
-FROM python:3.11-slim-buster as runtime
+# ============================================================
+# 🚀 Stage 2: Runtime (smaller final image)
+# ============================================================
+FROM python:3.11-slim-buster AS runtime
 
-ENV VIRTUAL_ENV=/app/.venv \
+# Install only runtime dependencies (smaller footprint)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libjpeg62-turbo \
+    zlib1g \
+    tesseract-ocr \
+    wkhtmltopdf \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup environment
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH"
 
+WORKDIR /app
+
+# Copy virtual environment from builder stage
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
+# Copy source code
 COPY src src
+COPY config.py config.py
 
-# Copy .git directory
+# Optional: copy .git directory if needed (for version info)
 COPY .git .git
 
+# Healthcheck (optional for uptime monitors)
+# HEALTHCHECK CMD python -m src.healthcheck || exit 1
 
-ENTRYPOINT ["python","src/bot.py"]
+# Entrypoint
+ENTRYPOINT ["python", "src/bot.py"]
